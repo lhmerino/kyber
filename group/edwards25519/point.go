@@ -113,19 +113,27 @@ func (P *point) EmbedLen() int {
 
 func (P *point) Embed(data []byte, rand cipher.Stream) kyber.Point {
 
+	embedRaw := false
+
 	// How many bytes to embed?
 	dl := P.EmbedLen()
 	if dl > len(data) {
 		dl = len(data)
+	} else if len(data) == 32 && (data[31] & (1 << uint8(8))) == 0 {
+		// Must want to embed the entire data (minus one bit)
+		dl = 32
+		embedRaw = true
 	}
 
 	for {
 		// Pick a random point, with optional embedded data
 		var b [32]byte
 		rand.XORKeyStream(b[:], b[:])
-		if data != nil {
+		if data != nil && embedRaw == false {
 			b[0] = byte(dl)       // Encode length in low 8 bits
 			copy(b[1:1+dl], data) // Copy in data to embed
+		} else if data != nil && embedRaw == true {
+			copy(b[:], data)
 		}
 		if !P.ge.FromBytes(b[:]) { // Try to decode
 			continue // invalid point, retry
@@ -158,7 +166,10 @@ func (P *point) Embed(data []byte, rand cipher.Stream) kyber.Point {
 		if Q.Equal(nullPoint) {
 			return P // success
 		}
-		// Keep trying...
+		// Keep trying... unless tried to embed raw
+		if data != nil && embedRaw == true {
+			return nullPoint // failure
+		}
 	}
 }
 
